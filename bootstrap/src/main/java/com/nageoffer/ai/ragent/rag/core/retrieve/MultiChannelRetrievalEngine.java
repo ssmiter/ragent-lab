@@ -208,6 +208,24 @@ public class MultiChannelRetrievalEngine {
         log.info("后置处理器链执行完成 - 初始: {} 个 Chunk, 最终: {} 个 Chunk",
                 initialSize, chunks.size());
 
+        // ===== 检索透视：打印最终送给LLM的chunk详情 =====
+        for (int i = 0; i < chunks.size(); i++) {
+            RetrievedChunk chunk = chunks.get(i);
+            String preview = chunk.getText() != null && chunk.getText().length() > 150
+                    ? chunk.getText().substring(0, 150) + "..."
+                    : (chunk.getText() != null ? chunk.getText() : "");
+            log.info("召回chunk[{}] 来源={} | 分数={} | 内容预览={}",
+                    i + 1,
+                    chunk.getId() != null ? chunk.getId() : "unknown",
+                    String.format("%.4f", chunk.getScore()),
+                    preview);
+        }
+        // ===== 检索透视结束 =====
+
+        log.info("分数分布: {}", chunks.stream()
+                .map(c -> String.format("%.4f", c.getScore()))
+                .collect(java.util.stream.Collectors.joining(", ")));
+
         return chunks;
     }
 

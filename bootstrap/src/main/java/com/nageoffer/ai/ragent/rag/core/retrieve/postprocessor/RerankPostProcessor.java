@@ -64,10 +64,43 @@ public class RerankPostProcessor implements SearchResultPostProcessor {
             return chunks;
         }
 
-        return rerankService.rerank(
+        // 执行 Rerank
+        List<RetrievedChunk> reranked = rerankService.rerank(
                 context.getMainQuestion(),
                 chunks,
                 context.getTopK()
         );
+
+        // ===== 自适应 TopK 截断 =====
+        int originalSize = reranked.size();
+        int minKeep = 3;              // 保底至少保留 3 个
+        double dropThreshold = 0.15;  // 分数差阈值
+
+        // 从第1个位置开始扫描所有相邻pair
+        int cutPosition = -1;
+        double maxDrop = 0.0;
+
+        for (int i = 0; i < reranked.size() - 1; i++) {
+            double drop = reranked.get(i).getScore() - reranked.get(i + 1).getScore();
+            if (drop > dropThreshold) {
+                // 找到第一个超过阈值的drop，截断位置不低于minKeep
+                cutPosition = Math.max(i + 1, minKeep);
+                maxDrop = drop;
+                break;
+            }
+        }
+
+        List<RetrievedChunk> finalChunks;
+        if (cutPosition > 0 && cutPosition < originalSize) {
+            finalChunks = reranked.subList(0, cutPosition);
+            log.info("自适应截断: 从 {} 个截断到 {} 个, 触发drop={}",
+                    originalSize, finalChunks.size(), String.format("%.4f", maxDrop));
+        } else {
+            finalChunks = reranked;
+            log.info("自适应截断: 无需截断, 保留 {} 个chunk", originalSize);
+        }
+        // ===== 自适应截断结束 =====
+
+        return finalChunks;
     }
 }
