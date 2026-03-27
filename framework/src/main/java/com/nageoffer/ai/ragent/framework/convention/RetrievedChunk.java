@@ -51,4 +51,36 @@ public class RetrievedChunk {
      * 数值越大表示与查询的相关性越高
      */
     private Float score;
+
+    /**
+     * 文档ID（来自 metadata.doc_id）
+     * 用于关联 t_knowledge_document 表获取文档名称等信息
+     */
+    private String docId;
+
+    /**
+     * 来源路径（来自 metadata.source_location）
+     * 原始文件路径或URL
+     */
+    private String sourceLocation;
+
+    /**
+     * 分块序号（来自 metadata.chunk_index）
+     * 该 chunk 在原文中的位置
+     */
+    private Integer chunkIndex;
+
+    /**
+     * 知识库ID（来自 metadata.kb_id）
+     */
+    private String kbId;
+
+    /**
+     * 兼容原有调用的三参数构造函数
+     */
+    public RetrievedChunk(String id, String text, Float score) {
+        this.id = id;
+        this.text = text;
+        this.score = score;
+    }
 }

@@ -17,6 +17,7 @@
 
 package com.nageoffer.ai.ragent.rag.service.handler;
 
+import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
 import com.nageoffer.ai.ragent.rag.dao.entity.ConversationDO;
 import com.nageoffer.ai.ragent.rag.dto.CompletionPayload;
@@ -25,13 +26,19 @@ import com.nageoffer.ai.ragent.rag.dto.MetaPayload;
 import com.nageoffer.ai.ragent.rag.enums.SSEEventType;
 import com.nageoffer.ai.ragent.framework.context.UserContext;
 import com.nageoffer.ai.ragent.framework.convention.ChatMessage;
+import com.nageoffer.ai.ragent.framework.convention.RetrievedChunk;
 import com.nageoffer.ai.ragent.framework.web.SseEmitterSender;
 import com.nageoffer.ai.ragent.infra.chat.StreamCallback;
 import com.nageoffer.ai.ragent.infra.config.AIModelProperties;
 import com.nageoffer.ai.ragent.rag.core.memory.ConversationMemoryService;
 import com.nageoffer.ai.ragent.rag.service.ConversationGroupService;
+import com.nageoffer.ai.ragent.rag.service.DocumentNameCacheService;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 public class StreamChatEventHandler implements StreamCallback {
@@ -51,6 +58,16 @@ public class StreamChatEventHandler implements StreamCallback {
     private final StringBuilder answer = new StringBuilder();
 
     /**
+     * 文档名称缓存服务
+     */
+    private final DocumentNameCacheService documentNameCacheService;
+
+    /**
+     * 检索结果（用于生成引用来源）
+     */
+    private List<RetrievedChunk> retrievedChunks;
+
+    /**
      * 使用参数对象构造（推荐）
      *
      * @param params 构建参数
@@ -63,6 +80,7 @@ public class StreamChatEventHandler implements StreamCallback {
         this.conversationGroupService = params.getConversationGroupService();
         this.taskManager = params.getTaskManager();
         this.userId = UserContext.getUserId();
+        this.documentNameCacheService = params.getDocumentNameCacheService();
 
         // 计算配置
         this.messageChunkSize = resolveMessageChunkSize(params.getModelProperties());
@@ -70,6 +88,11 @@ public class StreamChatEventHandler implements StreamCallback {
 
         // 初始化（发送初始事件、注册任务）
         initialize();
+    }
+
+    @Override
+    public void setRetrievedChunks(List<RetrievedChunk> chunks) {
+        this.retrievedChunks = chunks;
     }
 
     /**
@@ -141,8 +164,15 @@ public class StreamChatEventHandler implements StreamCallback {
         if (taskManager.isCancelled(taskId)) {
             return;
         }
+        // 拼接引用来源
+        String finalAnswer = answer.toString();
+        String citationSection = buildCitationSection();
+        if (StrUtil.isNotBlank(citationSection)) {
+            finalAnswer = finalAnswer + "\n\n" + citationSection;
+        }
+
         Long messageId = memoryService.append(conversationId, UserContext.getUserId(),
-                ChatMessage.assistant(answer.toString()));
+                ChatMessage.assistant(finalAnswer));
         String title = resolveTitleForEvent();
         String messageIdText = messageId == null ? null : String.valueOf(messageId);
         sender.sendEvent(SSEEventType.FINISH.value(), new CompletionPayload(messageIdText, title));
@@ -191,4 +221,85 @@ public class StreamChatEventHandler implements StreamCallback {
         }
         return "新对话";
     }
-}
+
+    /**
+     * 构建引用来源折叠区域（Markdown 格式）
+     */
+    private String buildCitationSection() {
+        if (CollUtil.isEmpty(retrievedChunks)) {
+            return null;
+        }
+
+        // 按文档去重，保留最高分
+        Map<String, RetrievedChunk> docToBestChunk = new LinkedHashMap<>();
+        for (RetrievedChunk chunk : retrievedChunks) {
+            // 使用 docId 或 sourceLocation 作为文档标识
+            String docKey = StrUtil.isNotBlank(chunk.getDocId()) ? chunk.getDocId() :
+                    (StrUtil.isNotBlank(chunk.getSourceLocation()) ? chunk.getSourceLocation() : null);
+            if (docKey == null) {
+                docKey = "unknown-" + chunk.getId(); // 兜底
+            }
+
+            RetrievedChunk existing = docToBestChunk.get(docKey);
+            if (existing == null) {
+                docToBestChunk.put(docKey, chunk);
+            } else {
+                // 保留分数更高的
+                Float existingScore = existing.getScore() != null ? existing.getScore() : 0f;
+                Float newScore = chunk.getScore() != null ? chunk.getScore() : 0f;
+                if (newScore > existingScore) {
+                    docToBestChunk.put(docKey, chunk);
+                }
+            }
+        }
+
+        if (docToBestChunk.isEmpty()) {
+            return null;
+        }
+
+        List<RetrievedChunk> uniqueDocs = new ArrayList<>(docToBestChunk.values());
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("<details>\n");
+        sb.append("<summary>📚 引用来源（共").append(uniqueDocs.size()).append("篇文档）</summary>\n\n");
+
+        for (int i = 0; i < uniqueDocs.size(); i++) {
+            RetrievedChunk chunk = uniqueDocs.get(i);
+            String docName = extractDocName(chunk);
+            String score = chunk.getScore() != null ? String.format("%.2f", chunk.getScore()) : "N/A";
+
+            sb.append(i + 1).append(". ").append(docName);
+            sb.append(" — 相关度 ").append(score).append("\n");
+        }
+
+        sb.append("</details>");
+        return sb.toString();
+    }
+
+    /**
+     * 从 chunk 提取文档名称
+     */
+    private String extractDocName(RetrievedChunk chunk) {
+        // 优先使用 sourceLocation 的文件名
+        if (StrUtil.isNotBlank(chunk.getSourceLocation())) {
+            String location = chunk.getSourceLocation();
+            int lastSlash = location.lastIndexOf('/');
+            int lastBackslash = location.lastIndexOf('\\');
+            int lastSep = Math.max(lastSlash, lastBackslash);
+            if (lastSep >= 0 && lastSep < location.length() - 1) {
+                return location.substring(lastSep + 1);
+            }
+            return location;
+        }
+        // 尝试通过 docId 查缓存获取文档名
+        if (StrUtil.isNotBlank(chunk.getDocId())) {
+            String cachedName = documentNameCacheService.getDocName(chunk.getDocId());
+            if (StrUtil.isNotBlank(cachedName)) {
+                return cachedName;
+            }
+            return chunk.getDocId();
+        }
+        return "未知来源";
+    }
+
+    }

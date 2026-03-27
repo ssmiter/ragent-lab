@@ -18,6 +18,7 @@
 package com.nageoffer.ai.ragent.rag.core.retrieve;
 
 import cn.hutool.core.collection.CollUtil;
+import cn.hutool.core.util.StrUtil;
 import com.nageoffer.ai.ragent.framework.convention.RetrievedChunk;
 import com.nageoffer.ai.ragent.framework.trace.RagTraceNode;
 import com.nageoffer.ai.ragent.rag.core.retrieve.channel.SearchChannel;
@@ -25,13 +26,16 @@ import com.nageoffer.ai.ragent.rag.core.retrieve.channel.SearchChannelResult;
 import com.nageoffer.ai.ragent.rag.core.retrieve.channel.SearchContext;
 import com.nageoffer.ai.ragent.rag.core.retrieve.postprocessor.SearchResultPostProcessor;
 import com.nageoffer.ai.ragent.rag.dto.SubQuestionIntent;
+import com.nageoffer.ai.ragent.rag.service.DocumentNameCacheService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
@@ -52,6 +56,7 @@ public class MultiChannelRetrievalEngine {
 
     private final List<SearchChannel> searchChannels;
     private final List<SearchResultPostProcessor> postProcessors;
+    private final DocumentNameCacheService documentNameCacheService;
     @Qualifier("ragRetrievalThreadPoolExecutor")
     private final Executor ragRetrievalExecutor;
 
@@ -208,25 +213,69 @@ public class MultiChannelRetrievalEngine {
         log.info("后置处理器链执行完成 - 初始: {} 个 Chunk, 最终: {} 个 Chunk",
                 initialSize, chunks.size());
 
-        // ===== 检索透视：打印最终送给LLM的chunk详情 =====
-        for (int i = 0; i < chunks.size(); i++) {
-            RetrievedChunk chunk = chunks.get(i);
-            String preview = chunk.getText() != null && chunk.getText().length() > 150
-                    ? chunk.getText().substring(0, 150) + "..."
-                    : (chunk.getText() != null ? chunk.getText() : "");
-            log.info("召回chunk[{}] 来源={} | 分数={} | 内容预览={}",
-                    i + 1,
-                    chunk.getId() != null ? chunk.getId() : "unknown",
-                    String.format("%.4f", chunk.getScore()),
-                    preview);
+        // 汇总日志：统计文档数、最高/最低分
+        if (CollUtil.isNotEmpty(chunks)) {
+            Map<String, RetrievedChunk> docToBestChunk = new LinkedHashMap<>();
+            for (RetrievedChunk chunk : chunks) {
+                String docKey = StrUtil.isNotBlank(chunk.getDocId()) ? chunk.getDocId()
+                        : (StrUtil.isNotBlank(chunk.getSourceLocation()) ? chunk.getSourceLocation() : "unknown");
+                RetrievedChunk existing = docToBestChunk.get(docKey);
+                if (existing == null || (chunk.getScore() != null && existing.getScore() != null && chunk.getScore() > existing.getScore())) {
+                    docToBestChunk.put(docKey, chunk);
+                }
+            }
+
+            // 获取文档名称列表（带最高分）
+            List<String> docNamesWithScore = docToBestChunk.values().stream()
+                    .map(c -> {
+                        String name = resolveDocName(c);
+                        String score = c.getScore() != null ? String.format("%.2f", c.getScore()) : "N/A";
+                        return name + "(" + score + ")";
+                    })
+                    .toList();
+
+            // 分数范围
+            Float maxScore = chunks.stream().map(RetrievedChunk::getScore).filter(Objects::nonNull).max(Float::compareTo).orElse(null);
+            Float minScore = chunks.stream().map(RetrievedChunk::getScore).filter(Objects::nonNull).min(Float::compareTo).orElse(null);
+            String scoreRange = (maxScore != null && minScore != null)
+                    ? String.format("%.2f~%.2f", maxScore, minScore)
+                    : "N/A";
+
+            log.info("最终检索结果: 共{}个chunk, 来自{}篇文档 {}, 分数范围: {}",
+                    chunks.size(), docToBestChunk.size(), docNamesWithScore, scoreRange);
         }
-        // ===== 检索透视结束 =====
 
         log.info("分数分布: {}", chunks.stream()
                 .map(c -> String.format("%.4f", c.getScore()))
                 .collect(java.util.stream.Collectors.joining(", ")));
 
         return chunks;
+    }
+
+    /**
+     * 解析文档显示名称
+     */
+    private String resolveDocName(RetrievedChunk chunk) {
+        // 1. 尝试从缓存获取（docId → docName）
+        if (StrUtil.isNotBlank(chunk.getDocId())) {
+            String cachedName = documentNameCacheService.getDocName(chunk.getDocId());
+            if (StrUtil.isNotBlank(cachedName)) {
+                return cachedName;
+            }
+        }
+        // 2. 尝试从 sourceLocation 提取文件名
+        if (StrUtil.isNotBlank(chunk.getSourceLocation())) {
+            String location = chunk.getSourceLocation();
+            int lastSlash = location.lastIndexOf('/');
+            int lastBackslash = location.lastIndexOf('\\');
+            int lastSep = Math.max(lastSlash, lastBackslash);
+            if (lastSep >= 0 && lastSep < location.length() - 1) {
+                return location.substring(lastSep + 1);
+            }
+            return location;
+        }
+        // 3. 兜底
+        return StrUtil.isNotBlank(chunk.getDocId()) ? chunk.getDocId() : "未知来源";
     }
 
     /**

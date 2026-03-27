@@ -23,6 +23,7 @@ import cn.hutool.core.util.StrUtil;
 import com.nageoffer.ai.ragent.framework.context.UserContext;
 import com.nageoffer.ai.ragent.framework.convention.ChatMessage;
 import com.nageoffer.ai.ragent.framework.convention.ChatRequest;
+import com.nageoffer.ai.ragent.framework.convention.RetrievedChunk;
 import com.nageoffer.ai.ragent.framework.trace.RagTraceContext;
 import com.nageoffer.ai.ragent.infra.chat.LLMService;
 import com.nageoffer.ai.ragent.infra.chat.StreamCallback;
@@ -117,6 +118,15 @@ public class RAGChatServiceImpl implements RAGChatService {
         }
 
         RetrievalContext ctx = retrievalEngine.retrieve(subIntents, DEFAULT_TOP_K);
+
+        // 注入检索结果到 callback（用于引用来源展示）
+        if (ctx.getIntentChunks() != null && !ctx.getIntentChunks().isEmpty()) {
+            List<RetrievedChunk> allChunks = ctx.getIntentChunks().values().stream()
+                    .flatMap(List::stream)
+                    .toList();
+            callback.setRetrievedChunks(allChunks);
+        }
+
         if (ctx.isEmpty()) {
             String emptyReply = "未检索到与问题相关的文档内容。";
             callback.onContent(emptyReply);

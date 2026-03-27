@@ -58,6 +58,7 @@ import com.nageoffer.ai.ragent.rag.service.FileStorageService;
 import com.nageoffer.ai.ragent.knowledge.service.KnowledgeChunkService;
 import com.nageoffer.ai.ragent.knowledge.service.KnowledgeDocumentService;
 import com.nageoffer.ai.ragent.knowledge.service.KnowledgeDocumentScheduleService;
+import com.nageoffer.ai.ragent.rag.service.DocumentNameCacheService;
 import com.nageoffer.ai.ragent.knowledge.schedule.CronScheduleHelper;
 import com.nageoffer.ai.ragent.ingestion.util.HttpClientHelper;
 import com.nageoffer.ai.ragent.ingestion.service.IngestionPipelineService;
@@ -113,6 +114,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
     private final IngestionEngine ingestionEngine;
     private final RedissonClient redissonClient;
     private final KnowledgeDocumentChunkLogMapper chunkLogMapper;
+    private final DocumentNameCacheService documentNameCacheService;
     @Qualifier("knowledgeChunkExecutor")
     private final Executor knowledgeChunkExecutor;
     private final PlatformTransactionManager transactionManager;
@@ -210,6 +212,9 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
                 .updatedBy(UserContext.getUsername())
                 .build();
         docMapper.insert(documentDO);
+
+        // 更新文档名称缓存
+        documentNameCacheService.put(String.valueOf(documentDO.getId()), documentDO.getDocName());
 
         return BeanUtil.toBean(documentDO, KnowledgeDocumentVO.class);
     }
@@ -525,6 +530,9 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
         documentDO.setUpdatedBy(UserContext.getUsername());
         docMapper.deleteById(documentDO);
 
+        // 移除文档名称缓存
+        documentNameCacheService.remove(docId);
+
         vectorStoreService.deleteDocumentVectors(String.valueOf(documentDO.getKbId()), docId);
     }
 
@@ -551,6 +559,9 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
         update.setDocName(docName.trim());
         update.setUpdatedBy(UserContext.getUsername());
         docMapper.updateById(update);
+
+        // 更新文档名称缓存
+        documentNameCacheService.put(String.valueOf(documentDO.getId()), docName.trim());
     }
 
     @Override

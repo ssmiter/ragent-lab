@@ -20,13 +20,26 @@ package com.nageoffer.ai.ragent.rag.core.prompt;
 import com.nageoffer.ai.ragent.framework.convention.RetrievedChunk;
 import com.nageoffer.ai.ragent.rag.core.intent.NodeScore;
 import com.nageoffer.ai.ragent.rag.core.mcp.MCPResponse;
+import com.nageoffer.ai.ragent.rag.service.DocumentNameCacheService;
 
 import java.util.List;
 import java.util.Map;
 
 public interface ContextFormatter {
 
-    String formatKbContext(List<NodeScore> kbIntents, Map<String, List<RetrievedChunk>> rerankedByIntent, int topK);
+    /**
+     * 格式化知识库上下文
+     *
+     * @param kbIntents          知识库意图列表
+     * @param rerankedByIntent   按意图ID分组的检索结果
+     * @param topK               返回结果数量限制
+     * @param documentNameCache  文档名称缓存服务（用于获取文档名）
+     * @return 格式化后的上下文字符串
+     */
+    String formatKbContext(List<NodeScore> kbIntents,
+                          Map<String, List<RetrievedChunk>> rerankedByIntent,
+                          int topK,
+                          DocumentNameCacheService documentNameCache);
 
     String formatMcpContext(List<MCPResponse> responses, List<NodeScore> mcpIntents);
 }

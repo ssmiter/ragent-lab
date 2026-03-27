@@ -80,11 +80,25 @@ public abstract class AbstractParallelRetriever<T> {
         int successCount = 0;
         int failureCount = 0;
 
+        int taskIndex = 0;
         for (RetrievalFuture<T> future : futures) {
+            taskIndex++;
             try {
                 List<RetrievedChunk> chunks = future.future.join();
                 allChunks.addAll(chunks);
                 successCount++;
+
+                // 打印每个子查询的详细统计
+                List<String> docIds = chunks.stream()
+                        .map(RetrievedChunk::getDocId)
+                        .filter(id -> id != null && !id.isBlank())
+                        .distinct()
+                        .toList();
+                log.info("子查询[{}] 目标={} | 返回{}个chunk | 涉及文档: {}",
+                        taskIndex,
+                        getTargetIdentifier(future.target),
+                        chunks.size(),
+                        docIds);
             } catch (Exception e) {
                 failureCount++;
                 log.error("{} 获取检索结果失败 - 目标: {}", getStatisticsName(), getTargetIdentifier(future.target), e);

@@ -34,6 +34,7 @@ import com.nageoffer.ai.ragent.rag.core.mcp.MCPTool;
 import com.nageoffer.ai.ragent.rag.core.mcp.MCPToolExecutor;
 import com.nageoffer.ai.ragent.rag.core.mcp.MCPToolRegistry;
 import com.nageoffer.ai.ragent.rag.core.prompt.ContextFormatter;
+import com.nageoffer.ai.ragent.rag.service.DocumentNameCacheService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -63,6 +64,7 @@ import static com.nageoffer.ai.ragent.rag.constant.RAGConstant.MULTI_CHANNEL_KEY
 public class RetrievalEngine {
 
     private final ContextFormatter contextFormatter;
+    private final DocumentNameCacheService documentNameCacheService;
     private final MCPParameterExtractor mcpParameterExtractor;
     private final MCPToolRegistry mcpToolRegistry;
     private final MultiChannelRetrievalEngine multiChannelRetrievalEngine;
@@ -220,7 +222,7 @@ public class RetrievalEngine {
             intentChunks.put(MULTI_CHANNEL_KEY, chunks);
         }
 
-        String groupedContext = contextFormatter.formatKbContext(kbIntents, intentChunks, topK);
+        String groupedContext = contextFormatter.formatKbContext(kbIntents, intentChunks, topK, documentNameCacheService);
         return new KbResult(groupedContext, intentChunks);
     }
 

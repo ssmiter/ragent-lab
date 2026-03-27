@@ -18,6 +18,8 @@
 package com.nageoffer.ai.ragent.rag.core.retrieve;
 
 import cn.hutool.core.util.StrUtil;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.nageoffer.ai.ragent.rag.config.RAGDefaultProperties;
 import com.nageoffer.ai.ragent.framework.convention.RetrievedChunk;
 import com.nageoffer.ai.ragent.infra.embedding.EmbeddingService;
@@ -84,10 +86,44 @@ public class MilvusRetrieverService implements RetrieverService {
         // TODO 需确认后续是否对分数较低数据进行限制，限制多少合适？0.65？
         // TODO 如果本次查询分数都较高，是否应该扩大查询范围？1.5倍？
         return results.get(0).stream()
-                .map(r -> new RetrievedChunk(
-                        Objects.toString(r.getEntity().get("doc_id"), ""),
-                        Objects.toString(r.getEntity().get("content"), ""),
-                        r.getScore()))
+                .map(r -> {
+                    String chunkId = Objects.toString(r.getEntity().get("doc_id"), "");
+                    String content = Objects.toString(r.getEntity().get("content"), "");
+                    Float score = r.getScore();
+
+                    // 解析 metadata
+                    Object metadataObj = r.getEntity().get("metadata");
+                    String docId = null;
+                    String sourceLocation = null;
+                    Integer chunkIndex = null;
+                    String kbId = null;
+
+                    if (metadataObj != null) {
+                        try {
+                            JsonObject meta = JsonParser.parseString(metadataObj.toString()).getAsJsonObject();
+                            docId = meta.has("doc_id") && !meta.get("doc_id").isJsonNull()
+                                    ? meta.get("doc_id").getAsString() : null;
+                            sourceLocation = meta.has("source_location") && !meta.get("source_location").isJsonNull()
+                                    ? meta.get("source_location").getAsString() : null;
+                            chunkIndex = meta.has("chunk_index") && !meta.get("chunk_index").isJsonNull()
+                                    ? meta.get("chunk_index").getAsInt() : null;
+                            kbId = meta.has("kb_id") && !meta.get("kb_id").isJsonNull()
+                                    ? meta.get("kb_id").getAsString() : null;
+                        } catch (Exception e) {
+                            log.warn("解析 metadata 失败, chunkId={}", chunkId, e);
+                        }
+                    }
+
+                    return RetrievedChunk.builder()
+                            .id(chunkId)
+                            .text(content)
+                            .score(score)
+                            .docId(docId)
+                            .sourceLocation(sourceLocation)
+                            .chunkIndex(chunkIndex)
+                            .kbId(kbId)
+                            .build();
+                })
                 .collect(Collectors.toList());
     }
 

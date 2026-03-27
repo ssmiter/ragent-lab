@@ -162,7 +162,16 @@ public class BaiLianRerankClient implements RerankClient {
 
             RetrievedChunk hit;
             if (score != null) {
-                hit = new RetrievedChunk(src.getId(), src.getText(), score);
+                // 使用 builder 模式，从原始 chunk 复制 metadata 字段
+                hit = RetrievedChunk.builder()
+                        .id(src.getId())
+                        .text(src.getText())
+                        .score(score)
+                        .docId(src.getDocId())
+                        .sourceLocation(src.getSourceLocation())
+                        .chunkIndex(src.getChunkIndex())
+                        .kbId(src.getKbId())
+                        .build();
             } else {
                 hit = src;
             }

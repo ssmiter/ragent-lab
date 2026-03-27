@@ -23,7 +23,9 @@ import com.nageoffer.ai.ragent.framework.convention.RetrievedChunk;
 import com.nageoffer.ai.ragent.rag.core.intent.IntentNode;
 import com.nageoffer.ai.ragent.rag.core.intent.NodeScore;
 import com.nageoffer.ai.ragent.rag.core.mcp.MCPResponse;
+import com.nageoffer.ai.ragent.rag.service.DocumentNameCacheService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -32,53 +34,65 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class DefaultContextFormatter implements ContextFormatter {
 
     @Override
-    public String formatKbContext(List<NodeScore> kbIntents, Map<String, List<RetrievedChunk>> rerankedByIntent, int topK) {
+    public String formatKbContext(List<NodeScore> kbIntents,
+                                  Map<String, List<RetrievedChunk>> rerankedByIntent,
+                                  int topK,
+                                  DocumentNameCacheService documentNameCache) {
         if (rerankedByIntent == null || rerankedByIntent.isEmpty()) {
             return "";
         }
+
+        String result;
         if (CollUtil.isEmpty(kbIntents)) {
-            return formatChunksWithoutIntent(rerankedByIntent, topK);
+            result = formatChunksWithoutIntent(rerankedByIntent, topK, documentNameCache);
+        } else if (kbIntents.size() > 1) {
+            // 多意图场景：合并所有规则和文档
+            result = formatMultiIntentContext(kbIntents, rerankedByIntent, topK, documentNameCache);
+        } else {
+            // 单意图场景
+            result = formatSingleIntentContext(kbIntents.get(0), rerankedByIntent, topK, documentNameCache);
         }
 
-        // 多意图场景：合并所有规则和文档
-        if (kbIntents.size() > 1) {
-            return formatMultiIntentContext(kbIntents, rerankedByIntent, topK);
+        if (StrUtil.isNotBlank(result)) {
+            log.info("格式化上下文预览: {}", result.substring(0, Math.min(200, result.length())));
         }
-
-        // 单意图场景：保持原有逻辑
-        return formatSingleIntentContext(kbIntents.get(0), rerankedByIntent, topK);
+        return result;
     }
 
     /**
      * 格式化单意图上下文
      */
-    private String formatSingleIntentContext(NodeScore nodeScore, Map<String, List<RetrievedChunk>> rerankedByIntent, int topK) {
+    private String formatSingleIntentContext(NodeScore nodeScore,
+                                             Map<String, List<RetrievedChunk>> rerankedByIntent,
+                                             int topK,
+                                             DocumentNameCacheService documentNameCache) {
         List<RetrievedChunk> chunks = rerankedByIntent.get(nodeScore.getNode().getId());
         if (CollUtil.isEmpty(chunks)) {
             return "";
         }
         String snippet = StrUtil.emptyIfNull(nodeScore.getNode().getPromptSnippet()).trim();
-        String body = chunks.stream()
-                .limit(topK)
-                .map(RetrievedChunk::getText)
-                .collect(Collectors.joining("\n"));
+        String body = formatChunksWithSource(chunks, topK, documentNameCache);
         StringBuilder block = new StringBuilder();
         if (StrUtil.isNotBlank(snippet)) {
             block.append("#### 回答规则\n").append(snippet).append("\n\n");
         }
-        block.append("#### 知识库片段\n````text\n").append(body).append("\n````");
+        block.append("#### 知识库片段\n").append(body);
         return block.toString();
     }
 
     /**
      * 格式化多意图上下文
      */
-    private String formatMultiIntentContext(List<NodeScore> kbIntents, Map<String, List<RetrievedChunk>> rerankedByIntent, int topK) {
+    private String formatMultiIntentContext(List<NodeScore> kbIntents,
+                                            Map<String, List<RetrievedChunk>> rerankedByIntent,
+                                            int topK,
+                                            DocumentNameCacheService documentNameCache) {
         StringBuilder result = new StringBuilder();
 
         // 1. 合并所有意图的回答规则
@@ -105,16 +119,16 @@ public class DefaultContextFormatter implements ContextFormatter {
                 .toList();
 
         if (!allChunks.isEmpty()) {
-            String body = allChunks.stream()
-                    .map(RetrievedChunk::getText)
-                    .collect(Collectors.joining("\n"));
-            result.append("#### 知识库片段\n````text\n").append(body).append("\n````");
+            String body = formatChunksWithSource(allChunks, allChunks.size(), documentNameCache);
+            result.append("#### 知识库片段\n").append(body);
         }
 
         return result.toString();
     }
 
-    private String formatChunksWithoutIntent(Map<String, List<RetrievedChunk>> rerankedByIntent, int topK) {
+    private String formatChunksWithoutIntent(Map<String, List<RetrievedChunk>> rerankedByIntent,
+                                             int topK,
+                                             DocumentNameCacheService documentNameCache) {
         int limit = topK > 0 ? topK : Integer.MAX_VALUE;
         List<RetrievedChunk> chunks = new ArrayList<>();
         for (List<RetrievedChunk> list : rerankedByIntent.values()) {
@@ -135,10 +149,86 @@ public class DefaultContextFormatter implements ContextFormatter {
             return "";
         }
 
-        String body = chunks.stream()
-                .map(RetrievedChunk::getText)
-                .collect(Collectors.joining("\n"));
-        return "#### 知识库片段\n````text\n" + body + "\n````";
+        String body = formatChunksWithSource(chunks, chunks.size(), documentNameCache);
+        return "#### 知识库片段\n" + body;
+    }
+
+    /**
+     * 按 文档ID/sourceLocation 分组，每组添加来源标签
+     */
+    private String formatChunksWithSource(List<RetrievedChunk> chunks,
+                                          int topK,
+                                          DocumentNameCacheService documentNameCache) {
+        // 按 文档标识 分组，保持插入顺序
+        Map<String, List<RetrievedChunk>> grouped = new LinkedHashMap<>();
+        int count = 0;
+        for (RetrievedChunk chunk : chunks) {
+            if (count >= topK) break;
+            String docKey = resolveDocKey(chunk);
+            grouped.computeIfAbsent(docKey, k -> new ArrayList<>()).add(chunk);
+            count++;
+        }
+
+        StringBuilder sb = new StringBuilder();
+        for (Map.Entry<String, List<RetrievedChunk>> entry : grouped.entrySet()) {
+            String docKey = entry.getKey();
+            List<RetrievedChunk> groupChunks = entry.getValue();
+
+            // 获取文档名称
+            String docName = resolveDocName(docKey, groupChunks.get(0), documentNameCache);
+            sb.append("[来源: ").append(docName).append("]\n");
+
+            // 追加该文档的所有 chunk 文本
+            for (RetrievedChunk chunk : groupChunks) {
+                sb.append(chunk.getText()).append("\n");
+            }
+            sb.append("\n");
+        }
+
+        return sb.toString().trim();
+    }
+
+    /**
+     * 解析文档唯一标识（优先 docId，其次 sourceLocation）
+     */
+    private String resolveDocKey(RetrievedChunk chunk) {
+        if (StrUtil.isNotBlank(chunk.getDocId())) {
+            return chunk.getDocId();
+        }
+        if (StrUtil.isNotBlank(chunk.getSourceLocation())) {
+            return chunk.getSourceLocation();
+        }
+        return "unknown-" + chunk.getId();
+    }
+
+    /**
+     * 解析文档显示名称
+     */
+    private String resolveDocName(String docKey,
+                                  RetrievedChunk sampleChunk,
+                                  DocumentNameCacheService documentNameCache) {
+        // 1. 尝试从缓存获取（docId → docName）
+        if (sampleChunk != null && StrUtil.isNotBlank(sampleChunk.getDocId())) {
+            String cachedName = documentNameCache.getDocName(sampleChunk.getDocId());
+            if (StrUtil.isNotBlank(cachedName)) {
+                return cachedName;
+            }
+        }
+
+        // 2. 尝试从 sourceLocation 提取文件名
+        if (sampleChunk != null && StrUtil.isNotBlank(sampleChunk.getSourceLocation())) {
+            String location = sampleChunk.getSourceLocation();
+            int lastSlash = location.lastIndexOf('/');
+            int lastBackslash = location.lastIndexOf('\\');
+            int lastSep = Math.max(lastSlash, lastBackslash);
+            if (lastSep >= 0 && lastSep < location.length() - 1) {
+                return location.substring(lastSep + 1);
+            }
+            return location;
+        }
+
+        // 3. 兜底：使用 docKey
+        return docKey;
     }
 
     @Override

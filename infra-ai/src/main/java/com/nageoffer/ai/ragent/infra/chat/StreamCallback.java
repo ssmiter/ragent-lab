@@ -17,6 +17,10 @@
 
 package com.nageoffer.ai.ragent.infra.chat;
 
+import com.nageoffer.ai.ragent.framework.convention.RetrievedChunk;
+
+import java.util.List;
+
 /**
  * 流式响应回调接口（StreamCallback）
  * <p>
@@ -83,4 +87,14 @@ public interface StreamCallback {
      * @param error 异常对象，包含具体错误信息
      */
     void onError(Throwable error);
+
+    /**
+     * 设置检索结果（用于引用来源展示）
+     * <p>
+     * 默认空实现，支持引用来源的回调可以覆写此方法
+     *
+     * @param chunks 检索到的文档片段列表
+     */
+    default void setRetrievedChunks(List<RetrievedChunk> chunks) {
+    }
 }
