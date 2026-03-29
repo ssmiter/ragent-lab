@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "ragent-knowledge": {
+      "type": "http",
+      "url": "http://localhost:9099/mcp",
+      "timeout": 30000,
+      "headers": {
+        "Accept": "application/json"
+      }
+    }
+  }
+}

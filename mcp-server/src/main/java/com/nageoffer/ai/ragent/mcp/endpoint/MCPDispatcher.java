@@ -33,7 +33,7 @@ import java.util.Optional;
 /**
  * MCP JSON-RPC 方法分发器
  * <p>
- * 处理 initialize、tools/list、tools/call 三个核心方法
+ * 处理 initialize、ping、tools/list、tools/call 等核心方法
  */
 @Slf4j
 @Component
@@ -54,6 +54,7 @@ public class MCPDispatcher {
 
         return switch (method) {
             case "initialize" -> handleInitialize(id);
+            case "ping" -> handlePing(id);
             case "tools/list" -> handleToolsList(id);
             case "tools/call" -> handleToolsCall(id, request.getParams());
             default -> JsonRpcResponse.error(id, JsonRpcError.METHOD_NOT_FOUND, "Unknown method: " + method);
@@ -62,7 +63,8 @@ public class MCPDispatcher {
 
     private JsonRpcResponse handleInitialize(Object id) {
         Map<String, Object> result = new LinkedHashMap<>();
-        result.put("protocolVersion", "2026-02-28");
+//        result.put("protocolVersion", "2026-02-28");
+        result.put("protocolVersion", "2024-11-05");
 
         Map<String, Object> capabilities = new LinkedHashMap<>();
         capabilities.put("tools", Map.of("listChanged", false));
@@ -74,6 +76,11 @@ public class MCPDispatcher {
         result.put("serverInfo", serverInfo);
 
         return JsonRpcResponse.success(id, result);
+    }
+
+    private JsonRpcResponse handlePing(Object id) {
+        // MCP ping 方法返回空对象表示服务存活
+        return JsonRpcResponse.success(id, new LinkedHashMap<>());
     }
 
     private JsonRpcResponse handleToolsList(Object id) {

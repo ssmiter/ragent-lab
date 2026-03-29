@@ -17,6 +17,7 @@
 
 package com.nageoffer.ai.ragent.mcp.protocol;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -25,10 +26,12 @@ import lombok.NoArgsConstructor;
  * JSON-RPC 2.0 响应
  * <p>
  * 成功时返回 result，失败时返回 error
+ * 根据 JSON-RPC 规范，result 和 error 不能同时存在
  */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public class JsonRpcResponse {
 
     /**
