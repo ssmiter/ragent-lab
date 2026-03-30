@@ -17,6 +17,7 @@
 
 package com.nageoffer.ai.ragent.mcp.core;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -32,6 +33,7 @@ import java.util.Map;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public class MCPToolDefinition {
 
     /**
@@ -63,6 +65,7 @@ public class MCPToolDefinition {
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class ParameterDef {
 
         /**
