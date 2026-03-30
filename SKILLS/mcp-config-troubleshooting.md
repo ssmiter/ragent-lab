@@ -82,11 +82,74 @@ public class JsonRpcResponse {
 
 **文件位置**：`mcp-server/src/main/java/com/nageoffer/ai/ragent/mcp/protocol/JsonRpcResponse.java`
 
-**这是导致健康检查一直失败的真正原因！**
+---
+
+### 坑 3：inputSchema 序列化包含 null 字段
+
+**问题**：`tools/list` 响应中 `inputSchema.properties` 包含 `"enumValues": null`
+
+**现象**：
+```json
+// 错误格式
+"properties": {
+  "query": {
+    "type": "string",
+    "description": "...",
+    "enumValues": null  // ← 多余字段，不符合 JSON Schema 规范
+  }
+}
+
+// 正确格式
+"properties": {
+  "query": {
+    "type": "string",
+    "description": "..."
+  }
+}
+```
+
+**原因**：`MCPToolSchema.PropertyDef` 使用 Lombok `@Data`，会序列化所有字段包括 null
+
+**解决**：给 MCPToolSchema 及其内部类添加 `@JsonInclude(NON_NULL)`
+
+```java
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+@JsonInclude(JsonInclude.Include.NON_NULL)  // 关键！
+public class MCPToolSchema {
+    // ...
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @JsonInclude(JsonInclude.Include.NON_NULL)  // 内部类也需要
+    public static class InputSchema {
+        // ...
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @JsonInclude(JsonInclude.Include.NON_NULL)  // 内部类也需要
+    public static class PropertyDef {
+        // ...
+    }
+}
+```
+
+**文件位置**：
+- `mcp-server/src/main/java/com/nageoffer/ai/ragent/mcp/protocol/MCPToolSchema.java`
+- `mcp-server/src/main/java/com/nageoffer/ai/ragent/mcp/core/MCPToolDefinition.java`
+
+**这是导致 MCP 工具无法加载到 Claude Code 工具列表的根本原因！**
 
 ---
 
-### 坑 3：缺少 ping 方法
+### 坑 4：缺少 ping 方法
 
 **问题**：MCP 健康检查可能调用 `ping` 方法，服务器未实现
 
@@ -110,7 +173,7 @@ private JsonRpcResponse handlePing(Object id) {
 
 ---
 
-### 坑 4：知识库检索服务地址和认证
+### 坑 5：知识库检索服务地址和认证
 
 **问题**：MCP Server 调用知识库检索时 URL 和认证不正确
 
@@ -143,7 +206,7 @@ private static final String BOOTSTRAP_RETRIEVE_URL = "http://localhost:9090/api/
 
 ---
 
-### 坑 5：配置文件传输类型
+### 坑 6：配置文件传输类型
 
 **问题**：最初使用 `"type": "streamable-http"`，但 Claude Code 使用 `"type": "http"`
 
@@ -155,7 +218,7 @@ claude mcp add --transport http ragent-knowledge http://localhost:9099/mcp -s pr
 
 ---
 
-### 坑 6：SSH 隧道端口映射
+### 坑 7：SSH 隧道端口映射
 
 **问题**：只映射了 9099（MCP Server），未映射 9090（Bootstrap 检索服务）
 
@@ -208,6 +271,7 @@ curl -X POST http://localhost:9099/mcp \
 | 坑 | 严重程度 | 解决难度 | 核心原因 |
 |----|----------|----------|----------|
 | JSON-RPC 响应格式 | ⭐⭐⭐⭐⭐ | 低 | 不了解 JSON-RPC 规范 |
+| inputSchema null 字段 | ⭐⭐⭐⭐⭐ | 低 | Lombok 序列化所有字段 |
 | 协议版本 | ⭐⭐⭐⭐ | 低 | 随意填写版本号 |
 | 缺 ping 方法 | ⭐⭐⭐ | 低 | 未实现完整 MCP 方法集 |
 | 检索服务认证 | ⭐⭐⭐ | 低 | 忽略认证要求 |
@@ -219,11 +283,13 @@ curl -X POST http://localhost:9099/mcp \
 
 ```
 mcp-server/src/main/java/com/nageoffer/ai/ragent/mcp/
-├── endpoint/MCPDispatcher.java      # protocolVersion + ping 方法
-├── protocol/JsonRpcResponse.java    # @JsonInclude 注解
-└── tools/KnowledgeSearchMCPExecutor.java  # URL + Authorization
+├── endpoint/MCPDispatcher.java           # protocolVersion + ping 方法
+├── protocol/JsonRpcResponse.java         # @JsonInclude 注解
+├── protocol/MCPToolSchema.java           # @JsonInclude 注解
+├── core/MCPToolDefinition.java           # @JsonInclude 注解
+└── tools/KnowledgeSearchMCPExecutor.java # URL + Authorization
 
-.mcp.json                            # MCP 配置文件
+.mcp.json                                 # MCP 配置文件
 ```
 
 ---
