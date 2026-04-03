@@ -28,7 +28,14 @@
       "Bash(JAVA_HOME=/Library/Java/JavaVirtualMachines/zulu-17.jdk/Contents/Home mvn clean:*)",
       "WebSearch",
       "WebFetch(domain:github.com)",
-      "Bash(gh release:*)"
+      "Bash(gh release:*)",
+      "mcp__ragent-knowledge__knowledge_search",
+      "Bash(claude tools:*)",
+      "mcp__ragent-knowledge__ragent_qa"
     ]
-  }
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "ragent-knowledge"
+  ]
 }
