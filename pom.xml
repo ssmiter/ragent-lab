@@ -33,6 +33,7 @@
         <module>framework</module>
         <module>infra-ai</module>
         <module>mcp-server</module>
+        <module>experiment</module>
     </modules>
 
     <dependencyManagement>

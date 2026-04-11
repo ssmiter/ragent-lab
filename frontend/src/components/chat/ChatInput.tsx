@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Brain, Lightbulb, Send, Square } from "lucide-react";
+import { Brain, Lightbulb, Send, Square, Sparkles } from "lucide-react";
 
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -16,6 +16,8 @@ export function ChatInput() {
     cancelGeneration,
     deepThinkingEnabled,
     setDeepThinkingEnabled,
+    agentModeEnabled,
+    setAgentModeEnabled,
     inputFocusKey
   } = useChatStore();
 
@@ -73,7 +75,7 @@ export function ChatInput() {
             ref={textareaRef}
             value={value}
             onChange={(event) => setValue(event.target.value)}
-            placeholder={deepThinkingEnabled ? "输入需要深度分析的问题..." : "输入你的问题..."}
+            placeholder={agentModeEnabled ? "手动策略：强制使用 Agent 模式..." : (deepThinkingEnabled ? "输入需要深度分析的问题..." : "输入你的问题...")}
             className="max-h-40 min-h-[44px] w-full resize-none border-0 bg-transparent px-2 pt-2 pb-2 pr-2 text-[15px] text-[#333333] shadow-none placeholder:text-[#999999] focus-visible:ring-0"
             rows={1}
             onFocus={() => setIsFocused(true)}
@@ -99,27 +101,51 @@ export function ChatInput() {
           <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-[10px] bg-gradient-to-b from-white/0 via-white/40 to-white/90" />
         </div>
         <div className="relative mt-2 flex items-center">
-          <button
-            type="button"
-            onClick={() => setDeepThinkingEnabled(!deepThinkingEnabled)}
-            disabled={isStreaming}
-            aria-pressed={deepThinkingEnabled}
-            className={cn(
-              "absolute left-0 rounded-lg border px-3 py-1.5 text-xs font-medium transition-all",
-              deepThinkingEnabled
-                ? "border-[#BFDBFE] bg-[#DBEAFE] text-[#2563EB]"
-                : "border-transparent bg-[#F5F5F5] text-[#999999] hover:bg-[#EEEEEE]",
-              isStreaming && "cursor-not-allowed opacity-60"
-            )}
-          >
-            <span className="inline-flex items-center gap-2">
-              <Brain className={cn("h-3.5 w-3.5", deepThinkingEnabled && "text-[#3B82F6]")} />
-              深度思考
-              {deepThinkingEnabled ? (
-                <span className="h-2 w-2 rounded-full bg-[#3B82F6] animate-pulse" />
-              ) : null}
-            </span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setAgentModeEnabled(!agentModeEnabled)}
+              disabled={isStreaming}
+              aria-pressed={agentModeEnabled}
+              className={cn(
+                "rounded-lg border px-3 py-1.5 text-xs font-medium transition-all",
+                agentModeEnabled
+                  ? "border-[#FEF3C7] bg-[#FEF3C7] text-[#D97706]"
+                  : "border-transparent bg-[#F5F5F5] text-[#999999] hover:bg-[#EEEEEE]",
+                isStreaming && "cursor-not-allowed opacity-60"
+              )}
+              title="默认智能路由，开启后强制使用 Agent 策略"
+            >
+              <span className="inline-flex items-center gap-2">
+                <Sparkles className={cn("h-3.5 w-3.5", agentModeEnabled && "text-[#D97706]")} />
+                Agent
+                {agentModeEnabled ? (
+                  <span className="h-2 w-2 rounded-full bg-[#D97706] animate-pulse" />
+                ) : null}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setDeepThinkingEnabled(!deepThinkingEnabled)}
+              disabled={isStreaming || agentModeEnabled}
+              aria-pressed={deepThinkingEnabled}
+              className={cn(
+                "rounded-lg border px-3 py-1.5 text-xs font-medium transition-all",
+                deepThinkingEnabled
+                  ? "border-[#BFDBFE] bg-[#DBEAFE] text-[#2563EB]"
+                  : "border-transparent bg-[#F5F5F5] text-[#999999] hover:bg-[#EEEEEE]",
+                (isStreaming || agentModeEnabled) && "cursor-not-allowed opacity-60"
+              )}
+            >
+              <span className="inline-flex items-center gap-2">
+                <Brain className={cn("h-3.5 w-3.5", deepThinkingEnabled && "text-[#3B82F6]")} />
+                深度思考
+                {deepThinkingEnabled ? (
+                  <span className="h-2 w-2 rounded-full bg-[#3B82F6] animate-pulse" />
+                ) : null}
+              </span>
+            </button>
+          </div>
           <button
             type="button"
             onClick={handleSubmit}
@@ -138,7 +164,14 @@ export function ChatInput() {
           </button>
         </div>
       </div>
-      {deepThinkingEnabled ? (
+      {agentModeEnabled ? (
+        <p className="text-xs text-[#D97706]">
+          <span className="inline-flex items-center gap-1.5">
+            <Sparkles className="h-3.5 w-3.5" />
+            强制 Agent 策略，AI 将自主检索知识库
+          </span>
+        </p>
+      ) : deepThinkingEnabled ? (
         <p className="text-xs text-[#2563EB]">
           <span className="inline-flex items-center gap-1.5">
             <Lightbulb className="h-3.5 w-3.5" />

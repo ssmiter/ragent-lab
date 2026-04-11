@@ -23,6 +23,7 @@ interface ChatState {
   isStreaming: boolean;
   isCreatingNew: boolean;
   deepThinkingEnabled: boolean;
+  agentModeEnabled: boolean;
   thinkingStartAt: number | null;
   streamTaskId: string | null;
   streamAbort: (() => void) | null;
@@ -35,6 +36,7 @@ interface ChatState {
   selectSession: (sessionId: string) => Promise<void>;
   updateSessionTitle: (sessionId: string, title: string) => void;
   setDeepThinkingEnabled: (enabled: boolean) => void;
+  setAgentModeEnabled: (enabled: boolean) => void;
   sendMessage: (content: string) => Promise<void>;
   cancelGeneration: () => void;
   appendStreamContent: (delta: string) => void;
@@ -81,6 +83,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   isStreaming: false,
   isCreatingNew: false,
   deepThinkingEnabled: false,
+  agentModeEnabled: false,
   thinkingStartAt: null,
   streamTaskId: null,
   streamAbort: null,
@@ -115,7 +118,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
         isCreatingNew: true,
         isLoading: false,
         thinkingStartAt: null,
-        deepThinkingEnabled: false
+        deepThinkingEnabled: false,
+        agentModeEnabled: false
       });
       return "";
     }
@@ -129,6 +133,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       isLoading: false,
       isCreatingNew: true,
       deepThinkingEnabled: false,
+      agentModeEnabled: false,
       thinkingStartAt: null,
       streamTaskId: null,
       streamAbort: null,
@@ -218,6 +223,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setDeepThinkingEnabled: (enabled) => {
     set({ deepThinkingEnabled: enabled });
   },
+  setAgentModeEnabled: (enabled) => {
+    // Agent 模式开启时，自动关闭深度思考
+    set({ agentModeEnabled: enabled, deepThinkingEnabled: enabled ? false : get().deepThinkingEnabled });
+  },
   sendMessage: async (content) => {
     const trimmed = content.trim();
     if (!trimmed) return;
@@ -256,12 +265,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }));
 
     const conversationId = get().currentSessionId;
+    const agentModeEnabled = get().agentModeEnabled;
+
+    // 默认使用智能路由 /smart/chat，Agent 模式开启时强制指定策略
+    const endpoint = "/smart/chat";
     const query = buildQuery({
       question: trimmed,
       conversationId: conversationId || undefined,
-      deepThinking: deepThinkingEnabled ? true : undefined
+      strategy: agentModeEnabled ? "agent" : undefined,
+      deepThinking: agentModeEnabled ? undefined : (deepThinkingEnabled ? true : undefined)
     });
-    const url = `${API_BASE_URL}/rag/v3/chat${query}`;
+    const url = `${API_BASE_URL}${endpoint}${query}`;
     const token = storage.getToken();
 
     const handlers = {

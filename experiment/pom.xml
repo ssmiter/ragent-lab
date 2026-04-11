@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.nageoffer.ai</groupId>
+        <artifactId>ragent</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>experiment</artifactId>
+    <name>ragent-experiment</name>
+    <description>Agent Loop 实验模块 - 模型驱动的循环骨架验证</description>
+
+    <dependencies>
+        <!-- 复用 infra-ai 的 LLM 调用能力 -->
+        <dependency>
+            <groupId>com.nageoffer.ai</groupId>
+            <artifactId>infra-ai</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- 复用 framework 的基础类型 -->
+        <dependency>
+            <groupId>com.nageoffer.ai</groupId>
+            <artifactId>framework</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- 复用 mcp-server 的工具接口定义 -->
+        <dependency>
+            <groupId>com.nageoffer.ai</groupId>
+            <artifactId>mcp-server</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>com.google.code.gson</groupId>
+            <artifactId>gson</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>cn.hutool</groupId>
+            <artifactId>hutool-all</artifactId>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>
