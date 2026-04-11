@@ -103,19 +103,8 @@ public class RAGChatServiceImpl implements RAGChatService {
             return;
         }
 
-        boolean allSystemOnly = subIntents.stream()
-                .allMatch(si -> intentResolver.isSystemOnly(si.nodeScores()));
-        if (allSystemOnly) {
-            String customPrompt = subIntents.stream()
-                    .flatMap(si -> si.nodeScores().stream())
-                    .map(ns -> ns.getNode().getPromptTemplate())
-                    .filter(StrUtil::isNotBlank)
-                    .findFirst()
-                    .orElse(null);
-            StreamCancellationHandle handle = streamSystemResponse(rewriteResult.rewrittenQuestion(), history, customPrompt, callback);
-            taskManager.bindHandle(taskId, handle);
-            return;
-        }
+        // 注意：SYSTEM 意图检测已移至 PipelineStrategy 层，由 Strategy 层决定是否转交 Agent
+        // 这里只处理 KB/MCP 意图的检索和生成流程
 
         RetrievalContext ctx = retrievalEngine.retrieve(subIntents, DEFAULT_TOP_K);
 
