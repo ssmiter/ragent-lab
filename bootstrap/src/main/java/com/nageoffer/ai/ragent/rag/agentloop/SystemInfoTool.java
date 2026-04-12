@@ -134,6 +134,7 @@ This tool returns real system information, not fabricated content. Always use th
 
     /**
      * 获取知识库列表信息
+     * 包含从意图树获取的语义描述和示例问题
      */
     private String getKnowledgeBasesInfo() {
         List<KnowledgeBaseDO> kbList = knowledgeBaseMapper.selectList(
@@ -146,14 +147,34 @@ This tool returns real system information, not fabricated content. Always use th
             return "【知识库列表】\n当前系统未配置任何知识库。";
         }
 
+        // 从意图树获取 KB 类型叶子节点的路由信息
+        Map<String, KbRoutingInfo> routingInfoMap = getKbRoutingInfo();
+
         StringBuilder sb = new StringBuilder();
         sb.append("【知识库列表】共 ").append(kbList.size()).append(" 个知识库：\n\n");
 
         for (int i = 0; i < kbList.size(); i++) {
             KnowledgeBaseDO kb = kbList.get(i);
+            String collectionName = kb.getCollectionName();
+            KbRoutingInfo routingInfo = routingInfoMap.get(collectionName);
+
             sb.append((i + 1)).append(". ").append(kb.getName()).append("\n");
             sb.append("   - ID: ").append(kb.getId()).append("\n");
-            sb.append("   - 向量集合: ").append(kb.getCollectionName()).append("\n");
+            sb.append("   - 向量集合: ").append(collectionName).append("\n");
+
+            // 补充语义描述（如果有）
+            if (routingInfo != null && routingInfo.description != null && !routingInfo.description.isBlank()) {
+                sb.append("   - 内容范围: ").append(routingInfo.description).append("\n");
+            }
+
+            // 补充示例问题（如果有）
+            if (routingInfo != null && routingInfo.examples != null && !routingInfo.examples.isBlank()) {
+                String examplesStr = formatExamples(routingInfo.examples);
+                if (!examplesStr.isBlank()) {
+                    sb.append("   - 示例问题: ").append(examplesStr).append("\n");
+                }
+            }
+
             if (kb.getEmbeddingModel() != null) {
                 sb.append("   - 嵌入模型: ").append(kb.getEmbeddingModel()).append("\n");
             }
@@ -162,6 +183,63 @@ This tool returns real system information, not fabricated content. Always use th
 
         return sb.toString();
     }
+
+    /**
+     * 从意图树获取 KB 类型叶子节点的路由信息
+     */
+    private Map<String, KbRoutingInfo> getKbRoutingInfo() {
+        List<IntentNodeDO> kbLeafNodes = intentNodeMapper.selectList(
+                new LambdaQueryWrapper<IntentNodeDO>()
+                        .eq(IntentNodeDO::getDeleted, 0)
+                        .eq(IntentNodeDO::getEnabled, 1)
+                        // 只取 KB 类型
+                        .and(w -> w.eq(IntentNodeDO::getKind, IntentKind.KB.getCode())
+                                   .or().isNull(IntentNodeDO::getKind))
+                        // 只取叶子节点（有 collectionName）
+                        .isNotNull(IntentNodeDO::getCollectionName)
+                        .ne(IntentNodeDO::getCollectionName, "")
+        );
+
+        return kbLeafNodes.stream()
+                .filter(n -> n.getCollectionName() != null && !n.getCollectionName().isBlank())
+                .collect(Collectors.toMap(
+                        IntentNodeDO::getCollectionName,
+                        n -> new KbRoutingInfo(n.getDescription(), n.getExamples()),
+                        (a, b) -> a
+                ));
+    }
+
+    /**
+     * 格式化示例问题（从 JSON 数组转为可读文本）
+     */
+    private String formatExamples(String examplesJson) {
+        if (examplesJson == null || examplesJson.isBlank()) {
+            return "";
+        }
+        try {
+            // 尝试解析 JSON 数组
+            if (examplesJson.startsWith("[")) {
+                List<String> examples = cn.hutool.json.JSONUtil.toList(examplesJson, String.class);
+                if (examples.isEmpty()) {
+                    return "";
+                }
+                // 取前 3 个示例，用 " / " 连接
+                return examples.stream()
+                        .limit(3)
+                        .collect(Collectors.joining(" / "));
+            }
+            // 非数组格式，直接返回
+            return examplesJson;
+        } catch (Exception e) {
+            // 解析失败，直接返回原始文本
+            return examplesJson;
+        }
+    }
+
+    /**
+     * KB 路由信息（内部使用）
+     */
+    private record KbRoutingInfo(String description, String examples) {}
 
     /**
      * 获取意图树结构概览（只展示 KB 类型的节点）

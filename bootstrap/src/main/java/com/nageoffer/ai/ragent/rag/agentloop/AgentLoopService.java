@@ -89,6 +89,12 @@ public class AgentLoopService {
 4. 基于搜索结果回答时，引用具体内容
 5. 如果知识库中确实没有相关信息，诚实告知
 6. 对于问候语（如"你好"、"hello"），可以直接回答，无需调用工具
+
+知识库路由策略：
+1. 选择知识库时，仔细阅读工具描述中的内容范围说明，不要只看名称
+2. 如果首次搜索结果不佳，考虑切换到其他可能相关的知识库
+3. 跨领域问题可以依次搜索多个知识库
+4. 不确定某个知识库的内容时，先使用 system_info_query 查看其详细描述和示例问题
 """;
 
     /**
@@ -137,7 +143,7 @@ public class AgentLoopService {
             String effectiveQuestion = buildEffectiveQuestion(question, history);
 
             // 5. 创建工具
-            Tool searchTool = new KnowledgeSearchWithRerankTool(retrieverService, rerankService);
+            Tool searchTool = new KnowledgeSearchWithRerankTool(retrieverService, rerankService, knowledgeBaseMapper, intentNodeMapper);
             Tool systemInfoTool = new SystemInfoTool(knowledgeBaseMapper, intentNodeMapper);
             Map<String, Tool> tools = new HashMap<>();
             tools.put(searchTool.getName(), searchTool);

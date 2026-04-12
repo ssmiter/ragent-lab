@@ -19,6 +19,7 @@ package com.nageoffer.ai.ragent.mcp.tools;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.nageoffer.ai.ragent.mcp.core.MCPToolDefinition;
 import com.nageoffer.ai.ragent.mcp.core.MCPToolExecutor;
@@ -31,16 +32,16 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
- * 知识库检索工具（带 Rerank）- 多知识库版本
+ * 知识库检索工具（带 Rerank）- 动态知识库版本
  * <p>
- * 支持三个知识库：
- * - ragentdocs: Ragent 项目文档（架构、RAG、MCP、意图树等）
- * - ssddocs: SSD 理论文档（状态空间模型、原论文理论）
- * - dualssddocs: DualSSD 创新文档（块级别状态管理、改进）
+ * 支持的知识库：通过 HTTP 调用 bootstrap 获取，新增知识库无需改代码。
  * </p>
  */
 @Slf4j
@@ -48,6 +49,8 @@ import java.util.Map;
 public class KnowledgeSearchWithRerankMCPExecutor implements MCPToolExecutor {
 
     private static final String BOOTSTRAP_URL = "http://localhost:9090/api/ragent/retrieve/with-rerank";
+    private static final String KNOWLEDGE_BASE_LIST_URL = "http://localhost:9090/api/ragent/knowledge-base";
+    private static final String INTENT_TREE_URL = "http://localhost:9090/api/ragent/intent-tree/trees";
     private static final String AUTH_TOKEN = "0ec3d3621baa40a1ba9629a887a6d4c2";
     private static final Gson GSON = new Gson();
     private static final HttpClient HTTP_CLIENT = HttpClient.newHttpClient();
@@ -55,21 +58,35 @@ public class KnowledgeSearchWithRerankMCPExecutor implements MCPToolExecutor {
     private static final String TOOL_ID = "knowledge_search_with_rerank";
 
     /**
-     * 支持的知识库列表
+     * 缓存的知识库列表（简单实现，每次调用时重新获取）
      */
-    private static final List<String> VALID_COLLECTIONS = List.of("ragentdocs", "ssddocs", "dualssddocs");
+    private List<String> cachedValidCollections = null;
 
     @Override
     public MCPToolDefinition getToolDefinition() {
+        // 动态获取知识库列表
+        List<String> validCollections = fetchKnowledgeBases();
+        // 从意图树获取 KB 类型叶子节点的语义描述
+        Map<String, KbRoutingInfo> routingInfoMap = fetchKbRoutingInfo();
+
+        String kbListStr = validCollections.stream()
+                .map(collection -> {
+                    KbRoutingInfo info = routingInfoMap.get(collection);
+                    if (info != null && info.description != null && !info.description.isBlank()) {
+                        String shortDesc = truncateDescription(info.description, 50);
+                        return "- " + collection + " (" + shortDesc + ")";
+                    }
+                    return "- " + collection;
+                })
+                .collect(Collectors.joining("\n"));
+
         return MCPToolDefinition.builder()
                 .toolId(TOOL_ID)
                 .description("""
 Search a specific knowledge base for relevant information. Returns ranked text chunks with relevance scores (Rerank scores, typically 0.7-0.95).
 
-You can search three different knowledge bases:
-- ragentdocs: Ragent project documentation (system architecture, RAG implementation, MCP tools, intent tree, chunking strategy, frontend tech stack)
-- ssddocs: SSD (State Space Duality) original theory and paper content (state space models, mathematical derivation)
-- dualssddocs: DualSSD innovation documentation (improvements over SSD, block-level state management)
+Available knowledge bases (each with content scope):
+""" + kbListStr + """
 
 If unsure which knowledge base to search, start with the most likely one based on the question topic.
 You can search multiple knowledge bases by calling this tool multiple times with different collection values.
@@ -82,7 +99,7 @@ You can search multiple knowledge bases by calling this tool multiple times with
                         "collection", MCPToolDefinition.ParameterDef.builder()
                                 .description("Which knowledge base to search. Choose based on the question topic.")
                                 .required(true)
-                                .enumValues(VALID_COLLECTIONS)
+                                .enumValues(validCollections)
                                 .build(),
                         "top_k", MCPToolDefinition.ParameterDef.builder()
                                 .description("Maximum number of document chunks to return, default 5")
@@ -95,6 +112,176 @@ You can search multiple knowledge bases by calling this tool multiple times with
                 .build();
     }
 
+    /**
+     * 从意图树获取 KB 类型叶子节点的路由信息
+     * 通过 HTTP 调用 bootstrap 的意图树 API
+     */
+    private Map<String, KbRoutingInfo> fetchKbRoutingInfo() {
+        try {
+            HttpRequest httpRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(INTENT_TREE_URL))
+                    .header("Authorization", AUTH_TOKEN)
+                    .GET()
+                    .build();
+
+            HttpResponse<String> response = HTTP_CLIENT.send(httpRequest,
+                    HttpResponse.BodyHandlers.ofString());
+
+            if (response.statusCode() != 200) {
+                log.warn("获取意图树失败，状态码: {}", response.statusCode());
+                return Map.of();
+            }
+
+            JsonObject result = GSON.fromJson(response.body(), JsonObject.class);
+            String code = getJsonString(result, "code", "");
+            if (!"0".equals(code)) {
+                log.warn("获取意图树返回错误");
+                return Map.of();
+            }
+
+            JsonArray data = result.getAsJsonArray("data");
+            if (data == null || data.isEmpty()) {
+                return Map.of();
+            }
+
+            // 递归遍历意图树，提取 KB 类型叶子节点
+            Map<String, KbRoutingInfo> routingMap = new HashMap<>();
+            for (JsonElement element : data) {
+                extractKbLeafNodes(element.getAsJsonObject(), routingMap);
+            }
+
+            log.debug("从意图树获取到 {} 个 KB 路由信息", routingMap.size());
+            return routingMap;
+
+        } catch (Exception e) {
+            log.warn("获取意图树异常: {}", e.getMessage());
+            return Map.of();
+        }
+    }
+
+    /**
+     * 递归提取 KB 类型叶子节点的路由信息
+     */
+    private void extractKbLeafNodes(JsonObject node, Map<String, KbRoutingInfo> routingMap) {
+        String collectionName = getJsonString(node, "collectionName", null);
+        Integer kind = getJsonInt(node, "kind", 0); // 0=KB
+        JsonArray children = node.getAsJsonArray("children");
+
+        // 判断是否为 KB 类型叶子节点（有 collectionName）
+        if (collectionName != null && !collectionName.isBlank()
+                && (kind == null || kind == 0)) {
+            String description = getJsonString(node, "description", null);
+            String examplesJson = getJsonString(node, "examples", null);
+            routingMap.put(collectionName, new KbRoutingInfo(description, examplesJson));
+        }
+
+        // 递归处理子节点
+        if (children != null && !children.isEmpty()) {
+            for (JsonElement child : children) {
+                extractKbLeafNodes(child.getAsJsonObject(), routingMap);
+            }
+        }
+    }
+
+    /**
+     * 精简描述为一行，控制在指定长度内
+     */
+    private String truncateDescription(String desc, int maxLen) {
+        if (desc == null || desc.isBlank()) {
+            return "";
+        }
+        String cleaned = desc.replace("\n", " ").replace("\r", " ").trim();
+        if (cleaned.length() <= maxLen) {
+            return cleaned;
+        }
+        int cutPoint = cleaned.indexOf('。');
+        if (cutPoint > 0 && cutPoint < maxLen) {
+            return cleaned.substring(0, cutPoint);
+        }
+        cutPoint = cleaned.indexOf(',');
+        if (cutPoint > 0 && cutPoint < maxLen) {
+            return cleaned.substring(0, cutPoint).trim();
+        }
+        return cleaned.substring(0, maxLen - 1) + "...";
+    }
+
+    /**
+     * KB 路由信息（内部使用）
+     */
+    private record KbRoutingInfo(String description, String examples) {}
+
+    private Integer getJsonInt(JsonObject obj, String field, Integer defaultValue) {
+        if (!obj.has(field) || obj.get(field).isJsonNull()) {
+            return defaultValue;
+        }
+        try {
+            return obj.get(field).getAsInt();
+        } catch (NumberFormatException e) {
+            return defaultValue;
+        }
+    }
+
+    /**
+     * 通过 HTTP 调用 bootstrap 获取知识库列表
+     */
+    private List<String> fetchKnowledgeBases() {
+        try {
+            HttpRequest httpRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(KNOWLEDGE_BASE_LIST_URL))
+                    .header("Authorization", AUTH_TOKEN)
+                    .GET()
+                    .build();
+
+            HttpResponse<String> response = HTTP_CLIENT.send(httpRequest,
+                    HttpResponse.BodyHandlers.ofString());
+
+            if (response.statusCode() != 200) {
+                log.warn("获取知识库列表失败，状态码: {}, 使用默认列表", response.statusCode());
+                return getDefaultCollections();
+            }
+
+            JsonObject result = GSON.fromJson(response.body(), JsonObject.class);
+            String code = getJsonString(result, "code", "");
+            if (!"0".equals(code)) {
+                log.warn("获取知识库列表返回错误，使用默认列表");
+                return getDefaultCollections();
+            }
+
+            JsonObject data = result.getAsJsonObject("data");
+            if (data == null) {
+                return getDefaultCollections();
+            }
+
+            JsonArray records = data.getAsJsonArray("records");
+            if (records == null || records.isEmpty()) {
+                return getDefaultCollections();
+            }
+
+            List<String> collections = new ArrayList<>();
+            for (int i = 0; i < records.size(); i++) {
+                JsonObject kb = records.get(i).getAsJsonObject();
+                String collectionName = getJsonString(kb, "collectionName", null);
+                if (collectionName != null && !collectionName.isBlank()) {
+                    collections.add(collectionName);
+                }
+            }
+
+            log.debug("从 bootstrap 获取到 {} 个知识库", collections.size());
+            return collections.isEmpty() ? getDefaultCollections() : collections;
+
+        } catch (Exception e) {
+            log.warn("获取知识库列表异常: {}, 使用默认列表", e.getMessage());
+            return getDefaultCollections();
+        }
+    }
+
+    /**
+     * 默认知识库列表（兜底方案）
+     */
+    private List<String> getDefaultCollections() {
+        return List.of("ragentdocs", "ssddocs", "dualssddocs");
+    }
+
     @Override
     public MCPToolResponse execute(MCPToolRequest request) {
         String query = request.getStringParameter("query");
@@ -102,17 +289,22 @@ You can search multiple knowledge bases by calling this tool multiple times with
         String topKStr = request.getStringParameter("top_k");
         int topK = (topKStr != null) ? Integer.parseInt(topKStr) : 5;
 
+        // 动态获取有效知识库列表
+        List<String> validCollections = fetchKnowledgeBases();
+
         if (query == null || query.isBlank()) {
             return MCPToolResponse.error(TOOL_ID, "INVALID_PARAM", "参数 query 不能为空");
         }
 
         if (collection == null || collection.isBlank()) {
-            return MCPToolResponse.error(TOOL_ID, "INVALID_PARAM", "参数 collection 不能为空，请指定知识库：ragentdocs、ssddocs 或 dualssddocs");
+            String availableKbs = validCollections.stream().collect(Collectors.joining("、"));
+            return MCPToolResponse.error(TOOL_ID, "INVALID_PARAM", "参数 collection 不能为空，可用知识库：" + availableKbs);
         }
 
-        if (!VALID_COLLECTIONS.contains(collection)) {
+        if (!validCollections.contains(collection)) {
+            String availableKbs = validCollections.stream().collect(Collectors.joining("、"));
             return MCPToolResponse.error(TOOL_ID, "INVALID_PARAM",
-                    "无效的知识库: " + collection + "。请选择：ragentdocs、ssddocs 或 dualssddocs");
+                    "无效的知识库: " + collection + "。可用知识库：" + availableKbs);
         }
 
         try {
