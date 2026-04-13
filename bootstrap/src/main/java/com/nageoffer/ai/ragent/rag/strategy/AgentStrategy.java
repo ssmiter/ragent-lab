@@ -17,6 +17,8 @@
 
 package com.nageoffer.ai.ragent.rag.strategy;
 
+import cn.hutool.core.util.IdUtil;
+import cn.hutool.core.util.StrUtil;
 import com.nageoffer.ai.ragent.rag.agentloop.AgentLoopService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -81,10 +83,15 @@ Agent Loop 模式：灵活的工具调用循环。
         log.info("Agent Strategy 执行: question={}, conversationId={}",
                 request.getQuestion(), request.getConversationId());
 
+        // 如果 conversationId 为空，自动生成一个（与 Pipeline 一致）
+        String actualConversationId = StrUtil.isNotBlank(request.getConversationId())
+                ? request.getConversationId()
+                : IdUtil.getSnowflakeNextIdStr();
+
         // 直接调用现有的 AgentLoopService
         agentLoopService.runAgent(
                 request.getQuestion(),
-                request.getConversationId(),
+                actualConversationId,
                 request.getUserId(),
                 emitter
         );

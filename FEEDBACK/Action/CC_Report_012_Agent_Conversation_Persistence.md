@@ -123,8 +123,9 @@ Agent 模式流程（修复前）：
 | 文件 | 变更类型 | 说明 |
 |------|---------|------|
 | `AgentLoopService.java` | 增强 | 添加用户问题保存逻辑，修正流程顺序 |
+| `AgentStrategy.java` | 增强 | 自动生成 conversationId（与 Pipeline 一致） |
 
-**具体变更：**
+**AgentLoopService 变更：**
 
 1. **流程顺序调整**（第 131-151 行）：
    - 原流程：加载历史 → 执行 → 保存回复
@@ -146,14 +147,70 @@ if (StrUtil.isNotBlank(conversationId) && StrUtil.isNotBlank(userId)) {
 
 3. **文档注释更新**：增加对话持久化说明
 
+**AgentStrategy 变更：**
+
+```java
+// 如果 conversationId 为空，自动生成一个（与 Pipeline 一致）
+String actualConversationId = StrUtil.isNotBlank(request.getConversationId())
+        ? request.getConversationId()
+        : IdUtil.getSnowflakeNextIdStr();
+
+agentLoopService.runAgent(
+        request.getQuestion(),
+        actualConversationId,
+        request.getUserId(),
+        emitter
+);
+```
+
 ---
 
-## 四、验证结果
+## 四、验证结果（迭代修复）
+
+### 第一次验证：失败
+
+**现象**：重新部署后测试，对话仍未保存，前端显示"新对话"
+
+**日志分析**：
+```
+Smart Chat 请求: question=你好, conversationId=null, strategy=null
+Agent Loop 开始执行, question=你好, conversationId=null, userId=2001523723396308993
+```
+
+**问题发现**：`conversationId=null`！
+
+- Pipeline 在 `RAGChatServiceImpl.streamChat()` 第 84 行会自动生成 conversationId：
+  ```java
+  String actualConversationId = StrUtil.isBlank(conversationId) ? IdUtil.getSnowflakeNextIdStr() : conversationId;
+  ```
+- Agent 模式直接调用 `AgentLoopService.runAgent()`，没有自动生成逻辑
+- 我添加的保存逻辑依赖 `StrUtil.isNotBlank(conversationId)` 条件判断
+
+**修复**：在 `AgentStrategy.execute()` 中添加自动生成 conversationId 逻辑
+
+---
+
+### 第二次修复
+
+**变更文件**：
+| 文件 | 变更类型 | 说明 |
+|------|---------|------|
+| `AgentStrategy.java` | 增强 | 自动生成 conversationId（与 Pipeline 一致） |
+
+**具体变更**：
+```java
+// 如果 conversationId 为空，自动生成一个（与 Pipeline 一致）
+String actualConversationId = StrUtil.isNotBlank(request.getConversationId())
+        ? request.getConversationId()
+        : IdUtil.getSnowflakeNextIdStr();
+```
+
+---
 
 ### 编译验证
 ✅ 编译成功：`./mvnw.cmd compile -pl bootstrap -q`
 
-### 功能验证（待用户执行）
+### 功能验证（待用户再次执行）
 
 **验证步骤：**
 
