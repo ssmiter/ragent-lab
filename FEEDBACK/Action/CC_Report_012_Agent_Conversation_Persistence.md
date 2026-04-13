@@ -210,7 +210,31 @@ String actualConversationId = StrUtil.isNotBlank(request.getConversationId())
 ### 编译验证
 ✅ 编译成功：`./mvnw.cmd compile -pl bootstrap -q`
 
-### 功能验证（待用户再次执行）
+### 功能验证（第二次部署后）
+
+**验证时间**：2026-04-13 11:10
+
+**日志证据**：
+```
+第一次请求: conversationId=null → AgentStrategy 自动生成 2043527196005634048
+后续请求:   conversationId=2043527196005634048（对话持续）
+对话摘要:   MySQLConversationMemorySummaryService 生成摘要（58字符）
+```
+
+**验证场景**：
+| 问题类型 | 模式 | 结果 |
+|---------|------|------|
+| 问候语"你好" | Agent | ✅ 直接回答，conversationId 生成 |
+| 系统介绍 | Agent | ✅ 调用 system_info_query 工具 |
+| RAG技术问题 | Pipeline | ✅ 检索知识库，对话持续 |
+| 知识库查询 | Agent | ✅ 多轮对话正常传递 |
+| 嵌入模型对比 | Pipeline | ✅ 对话历史加载，摘要生成 |
+
+**验证结论**：✅ 主要矛盾解决，对话持久化功能正常工作
+
+---
+
+## 五、后续方向与改进建议
 
 **验证步骤：**
 
@@ -237,7 +261,7 @@ String actualConversationId = StrUtil.isNotBlank(request.getConversationId())
 
 ---
 
-## 五、后续方向
+## 五、后续方向与改进建议
 
 ### Agent 执行过程持久化的可行路径
 
@@ -262,6 +286,16 @@ String actualConversationId = StrUtil.isNotBlank(request.getConversationId())
 | `t_message.metadata` | 存储 tool_call_history、检索来源等 |
 | `t_conversation.mode` | 标识对话模式（pipeline/agent） |
 | `t_agent_transcript` | 存储完整的 Agent 执行 transcript |
+
+---
+
+### 仍存在的不足（后续可优化）
+
+| 方面 | 现状 | 可能方向 |
+|------|------|---------|
+| Agent 执行过程 | 仅保存问答，不保存 tool_call_history | 新增 metadata 字段存储 |
+| conversationId 生成 | AgentStrategy 和 PipelineStrategy 都有 | 可统一到 SmartChatController 层 |
+| 对话历史利用 | Agent 加载历史但未用于改写 | 可参考 Experiment 4 的上下文压缩策略 |
 
 ---
 
