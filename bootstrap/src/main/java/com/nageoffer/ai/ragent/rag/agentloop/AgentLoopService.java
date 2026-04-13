@@ -49,11 +49,19 @@ import java.util.Map;
  * <p>核心流程：</p>
  * <ol>
  *   <li>加载对话历史（复用现有 memoryService）</li>
+ *   <li>保存用户问题（同时创建/更新 Conversation）</li>
  *   <li>组装 system prompt</li>
  *   <li>创建并运行 AgentLoop</li>
  *   <li>流式返回最终回答</li>
  *   <li>保存 assistant 回复到对话历史</li>
  * </ol>
+ *
+ * <p>对话持久化说明：</p>
+ * <ul>
+ *   <li>用户问题和 assistant 回复都会保存到 t_message 表</li>
+ *   <li>保存用户问题时会自动创建/更新 t_conversation 表（生成标题）</li>
+ *   <li>复用 Pipeline 的 ConversationMemoryService，保持数据模型一致</li>
+ * </ul>
  */
 @Slf4j
 @Service
@@ -128,7 +136,7 @@ public class AgentLoopService {
                 return;
             }
 
-            // 3. 加载对话历史（可选，用于上下文）
+            // 3. 加载对话历史（在追加用户问题之前，确保历史不含当前问题）
             List<ChatMessage> history = null;
             if (StrUtil.isNotBlank(conversationId) && StrUtil.isNotBlank(userId)) {
                 try {
@@ -139,17 +147,28 @@ public class AgentLoopService {
                 }
             }
 
-            // 4. 组装用户问题（可以包含历史上下文）
+            // 4. 保存用户问题到对话历史
+            //    同时会创建/更新 Conversation 记录（生成标题）
+            if (StrUtil.isNotBlank(conversationId) && StrUtil.isNotBlank(userId)) {
+                try {
+                    memoryService.append(conversationId, userId, ChatMessage.user(question));
+                    log.debug("保存用户问题到对话历史");
+                } catch (Exception e) {
+                    log.warn("保存用户问题失败: {}", e.getMessage());
+                }
+            }
+
+            // 5. 组装用户问题（可以包含历史上下文）
             String effectiveQuestion = buildEffectiveQuestion(question, history);
 
-            // 5. 创建工具
+            // 6. 创建工具
             Tool searchTool = new KnowledgeSearchWithRerankTool(retrieverService, rerankService, knowledgeBaseMapper, intentNodeMapper);
             Tool systemInfoTool = new SystemInfoTool(knowledgeBaseMapper, intentNodeMapper);
             Map<String, Tool> tools = new HashMap<>();
             tools.put(searchTool.getName(), searchTool);
             tools.put(systemInfoTool.getName(), systemInfoTool);
 
-            // 6. 创建并运行 AgentLoop
+            // 7. 创建并运行 AgentLoop
             AgentLoop loop = new AgentLoop(
                     providerConfig.getUrl(),
                     providerConfig.getApiKey(),
@@ -161,10 +180,10 @@ public class AgentLoopService {
 
             AgentLoopResult result = loop.run(effectiveQuestion);
 
-            // 7. 记录执行报告
+            // 8. 记录执行报告
             log.info("\n{}", result.getReport());
 
-            // 8. 流式发送最终回答（使用前端期望的 message 事件格式）
+            // 9. 流式发送最终回答（使用前端期望的 message 事件格式）
             String finalResponse = result.getFinalResponse();
             if (finalResponse != null && !finalResponse.isBlank()) {
                 streamContent(finalResponse, sender);
@@ -172,7 +191,7 @@ public class AgentLoopService {
                 sender.sendEvent(SSEEventType.MESSAGE.value(), new MessageDelta("response", "抱歉，未能生成有效回答。"));
             }
 
-            // 9. 保存 assistant 回复到对话历史
+            // 10. 保存 assistant 回复到对话历史
             Long messageId = null;
             if (StrUtil.isNotBlank(conversationId) && StrUtil.isNotBlank(userId) && finalResponse != null) {
                 try {
@@ -183,7 +202,7 @@ public class AgentLoopService {
                 }
             }
 
-            // 10. 发送 finish 和 done 事件（前端期望的格式）
+            // 11. 发送 finish 和 done 事件（前端期望的格式）
             sender.sendEvent(SSEEventType.FINISH.value(), new CompletionPayload(
                     messageId != null ? String.valueOf(messageId) : null, null));
             sender.sendEvent(SSEEventType.DONE.value(), "[DONE]");
