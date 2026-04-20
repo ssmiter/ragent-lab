@@ -1,6 +1,6 @@
 # Ragent-Lab (Development Branch)
 
-> 基于 [nageoffer/ragent](https://github.com/nageoffer/ragent) 原项目的增强版本
+> 企业级 RAG 智能问答平台。在 Pipeline 固定流程基础上引入 Agent Loop 模式，按问题复杂度智能调度——简单问题保持低延迟，复杂问题获得多轮检索深度。
 
 本分支包含完整的开发记录、技能文档和反馈报告。
 
@@ -10,117 +10,87 @@
 
 ```
 ragent-lab/
-├── TASKS/                    # 任务记录（开发过程）
-│   ├── Action/               # Action 系列任务（Strategy Router、Smart Frontend、System Awareness）
-│   └── Agent Loop 相关实验任务
-├── SKILLS/                   # 技能文档（MCP、部署、协作等）
-├── FEEDBACK/                 # 反馈报告（CC 执行结果）
-│   └── DEBUG/                # 调试日志
+├── TASKS/                    # 任务指令（规划者产出）
+├── FEEDBACK/                 # 反馈报告（执行者产出）
+├── SKILLS/                   # 技能文档
 ├── COLLABORATION_PROTOCOL.md # 人机协作协议
-├── MAP/                      # 认知地图
 ├── bootstrap/                # 核心业务代码
 ├── frontend/                 # React 前端
-├── experiment/               # Agent Loop 实验代码
 └── mcp-server/               # MCP 服务
 ```
 
 ---
 
-## 核心增强功能
+## 核心特性
 
-### 1. Agent Loop 模式
+### Agent Loop 多轮检索
 
-基于 Claude Code 源码学习的 Agentic RAG 实现：
-
-- **自主检索决策**：模型判断何时检索、何时回答
-- **多轮工具调用**：支持多次检索迭代
-- **执行报告**：完整的执行过程记录
+模型自主驱动检索循环：判断何时需要检索、换关键词重试、切换知识库，直到获得足够信息才回答。
 
 详见：`bootstrap/src/main/java/com/nageoffer/ai/ragent/rag/agentloop/`
 
-### 2. Strategy + Router 机制
+### Pipeline 与 Agent 智能协同
 
-可插拔的问答处理策略架构：
-
-| 策略 | 描述 | 适用场景 |
-|------|------|---------|
-| Pipeline | 固定流程 RAG | 简单直接的问题 |
-| Agent | Agent Loop 模式 | 复杂推理、多轮检索 |
-
-智能路由自动选择最佳策略，用户无需手动切换。
+两种问答模式自动切换，各司其职。Router 按问题特征规则路由，意图分类识别复杂问题时自动移交 Agent。
 
 详见：`bootstrap/src/main/java/com/nageoffer/ai/ragent/rag/strategy/`
 
-### 3. 系统自省能力
+### 引用溯源可信度
 
-Agent 可查询系统真实元信息：
+每条回答附带原始文档来源与相关度评分，用户可追溯答案出处。
 
-- **system_info_query 工具**：获取知识库列表、意图树结构、系统能力
-- **SYSTEM 意图策略转交**：Pipeline → Agent，返回真实数据而非编造
-
-详见：`FEEDBACK/CC_Report_008_System_Awareness.md`
-
-### 4. MCP 工具集成
-
-支持自定义 MCP 工具：
-
-- `RagentQAMCPExecutor`：问答工具
-- 完整的 MCP 协议兼容性
-
-详见：`SKILLS/MCP_ITERATION_SKILLS_V2.md`
+详见：`FEEDBACK/Action/` 相关报告
 
 ---
 
-## 开发记录
+## 可扩展架构
 
-### Action 系列（Strategy Router 架构）
+| 扩展点 | 接口 | 当前实现 |
+|--------|------|---------|
+| 策略层 | `ChatStrategy` | Pipeline / Agent |
+| 工具层 | `Tool` | knowledge_search / system_info_query |
 
-| 任务 | 状态 | 描述 |
+新增处理模式或场景工具只需实现对应接口并注册，无需侵入核心流程。
+
+---
+
+## 开发过程记录
+
+### 协作模式
+
+本项目采用 ReAct 式人机协作：
+- **规划者**：需求分析、任务分解
+- **执行者**：代码实现、结果反馈
+
+所有任务通过 TASK/FEEDBACK 文件传递。详见 [COLLABORATION_PROTOCOL.md](COLLABORATION_PROTOCOL.md)
+
+### 里程碑
+
+| Task | 内容 | 状态 |
 |------|------|------|
-| Task 001 | ✅ | Pipeline/Agent 入口调查 |
-| Task 002 | ✅ | Agent Loop 合入 bootstrap |
-| Task 003 | ✅ | 功能验证 |
-| Task 004 | ✅ | 前端集成 |
-| Task 005 | ✅ | 多 Agent 架构调研 |
-| Task 006 | ✅ | Strategy + Router 实现 |
-| Task 007 | ✅ | 前端智能路由接入 |
-| Task 008 | ✅ | 系统自省工具 + SYSTEM 意图转交 |
-
-### Agent Loop 实验
-
-| 实验 | 状态 | 描述 |
-|------|------|------|
-| Experiment 0 | ✅ | Agent Loop 最小实现 |
-| Experiment 1 | ✅ | 多工具编排 |
-| Experiment 1.5 | ✅ | 百炼兼容性修复 |
-| Experiment 2 | ✅ | 多工具检索 |
-| Experiment 3 | ✅ | 跨知识库检索 |
-| Experiment 4 | ✅ | Transcript & Microcompact |
+| 001 | 调研 bootstrap 结构 | ✅ |
+| 002 | Agent Loop 合入 | ✅ |
+| 003 | 功能验证 | ✅ |
+| 004 | 前端集成 | ✅ |
+| 005 | 多 Agent 架构调研 | ✅ |
+| 006 | Strategy + Router | ✅ |
+| 007 | 前端智能路由 | ✅ |
+| 008 | 系统自省 + SYSTEM转交 | ✅ |
+| 009-012 | 路由增强与持久化修复 | ✅ |
 
 ---
 
 ## 技术栈
 
-| 类型 | 技术 |
-|------|------|
-| 后端 | Java 17, Spring Boot 3.5, MyBatis Plus |
-| 前端 | React 18, Vite, TypeScript |
-| 向量数据库 | Milvus 2.6 |
-| LLM | 百炼 API（阿里云） |
-| MCP | 自研 MCP Server |
+Spring Boot 3.5 / React 18 / Milvus 2.6 / MySQL 8.0 / Redis / 百炼 API（Function Calling） / SSE
 
 ---
 
 ## 快速开始
 
 ```bash
-# 克隆仓库
 git clone git@github.com:ssmiter/ragent-lab.git
 cd ragent-lab
-
-# 查看开发记录
-ls TASKS/
-ls FEEDBACK/
 
 # 启动后端
 ./mvnw.cmd spring-boot:run -pl bootstrap
@@ -131,26 +101,12 @@ cd frontend && npm install && npm run dev
 
 ---
 
-## 原项目来源
+## 致谢
 
-本项目基于 [nageoffer/ragent](https://github.com/nageoffer/ragent) 开发，感谢原作者的优秀架构设计。
-
-原项目核心能力：
-- 多路检索引擎
-- 意图识别与引导
-- 问题重写与拆分
-- 模型路由与容错
-- MCP 工具集成
-- 文档入库流水线
-
-本仓库在原项目基础上新增：
-- Agent Loop 模式
-- Strategy + Router 智能路由
-- 系统自省工具
-- 完整的开发记录文档
+基于 [nageoffer/ragent](https://github.com/nageoffer/ragent) 开发。
 
 ---
 
 ## License
 
-Apache License 2.0（继承原项目）
+Apache License 2.0
